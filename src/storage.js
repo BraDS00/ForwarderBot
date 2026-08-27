@@ -1,3 +1,5 @@
+/* Local Saving method :
+    use the local file system to store targets and forwarding sessions. This is simpler to set up, but it won't work if the bot is restarted or deployed to a serverless environment.
 // const fs = require('fs');
 // const path = require('path');
 
@@ -98,6 +100,9 @@
 //     getUsers
 // };
 
+*/
+
+// MongoDB method :
 
 const { MongoClient } = require('mongodb');
 
@@ -117,17 +122,27 @@ async function connectDatabase() {
     }
 
     client = new MongoClient(uri);
-
     await client.connect();
-
     database = client.db(databaseName);
 
-    await database.collection('groups').createIndex({ id: 1 }, { unique: true });
+    // One user should have only one record for a group, but different users
+    // may save the same group separately.
+    try {
+        await database.collection('groups').dropIndex('id_1');
+    } catch (error) {
+        // Error code 27 means the old index does not exist yet.
+        if (error.code !== 27) {
+            throw error;
+        }
+    }
 
+    await database.collection('groups').createIndex(
+        { id: 1, adder: 1 },
+        { unique: true }
+    );
     await database.collection('users').createIndex({ id: 1 }, { unique: true });
 
     console.log(`Connected to MongoDB database: ${databaseName}`);
-
     return database;
 }
 
@@ -147,12 +162,16 @@ function getDatabase() {
     return database;
 }
 
-async function addGroup(chat) {
-    await getDatabase().collection('groups').updateOne({ id: chat.id }, {
+async function addGroup(chat, user) {
+    await getDatabase().collection('groups').updateOne({
+        id: chat.id,
+        adder: user.username
+    }, {
         $set: {
             id: chat.id,
             title: chat.title,
-            type: chat.type
+            type: chat.type,
+            adder: user.username
         }
     }, { upsert: true });
 }
